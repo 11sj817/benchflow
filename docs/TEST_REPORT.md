@@ -149,4 +149,4 @@
 - 演示数据关联一致，缺陷闭环与报告审核约束由服务层强制。
 - 当前不具备真实多用户与后端能力，相关限制已在界面与文档中明确标注。
 
-> **GitHub Pages 已上线并验证**：<https://11sj817.github.io/benchflow/>。commit `dee59ef` 的 Actions run `43238354278` 成功（build + deploy），线上首页返回 HTTP 200，无头 Chrome 实拍确认工作台、图表与演示数据正常渲染；移动端与工位路由通过本地同构建产物验证。
+> **GitHub Pages 已上线并验证 2.1**：<https://11sj817.github.io/benchflow/>。PR #1 已合并（merge commit `02601d5`），Actions run `43256416517` 成功完成 typecheck → lint → test → build → Pages 部署；线上首页 HTTP 200，无头 Chrome 实拍确认六区导航、角色化工作台与演示数据正常渲染。手机 375/390/430 与平板 1024/1280 截图见 `docs/screenshots/ux-2.1/`。
