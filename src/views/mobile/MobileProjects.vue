@@ -39,7 +39,7 @@
           </div>
           <div class="actions">
             <router-link :to="`/mobile/record`" class="mini primary">记录</router-link>
-            <router-link :to="`/projects/${project.id}`" class="mini">详情</router-link>
+            <router-link :to="`/mobile/projects/${project.id}`" class="mini">详情</router-link>
           </div>
         </footer>
       </article>

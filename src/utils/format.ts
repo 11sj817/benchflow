@@ -212,6 +212,7 @@ export const fileKind = dict<FileKind>({
   pdf: { label: 'PDF', tone: 'danger' },
   zip: { label: 'ZIP', tone: 'warning' },
   log: { label: 'LOG', tone: 'neutral' },
+  audio: { label: '音频', tone: 'info' },
 })
 
 export const reportType = dict<ReportType>({

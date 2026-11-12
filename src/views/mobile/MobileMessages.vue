@@ -39,6 +39,7 @@ import { notificationService } from '@/services/orgService'
 import { useAppStore } from '@/stores/app'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { fromNow } from '@/utils/format'
+import { toMobileLink } from '@/utils/mobileLink'
 
 const router = useRouter()
 const app = useAppStore()
@@ -50,7 +51,7 @@ const markAll = () => notificationService.markAllRead(app.currentUser.id)
 
 const open = (notice: { id: string; read: boolean; link?: string }) => {
   if (!notice.read) notificationService.markRead(notice.id)
-  if (notice.link) router.push(notice.link.replace(/^#/, ''))
+  if (notice.link) router.push(toMobileLink(notice.link))
 }
 </script>
 

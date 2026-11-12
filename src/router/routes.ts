@@ -54,6 +54,11 @@ export const routes: RouteRecordRaw[] = [
       { path: 'scan', name: 'mobile-scan', component: () => import('@/views/mobile/MobileScan.vue'), meta: { title: '扫码进入' } },
       { path: 'messages', name: 'mobile-messages', component: () => import('@/views/mobile/MobileMessages.vue'), meta: { title: '消息中心' } },
       { path: 'projects', name: 'mobile-projects', component: () => import('@/views/mobile/MobileProjects.vue'), meta: { title: '我的项目' } },
+      { path: 'projects/:id', name: 'mobile-project-detail', component: () => import('@/views/mobile/MobileProjectDetail.vue'), meta: { title: '项目详情' } },
+      { path: 'executions/:id', name: 'mobile-execution-detail', component: () => import('@/views/mobile/MobileExecutionDetail.vue'), meta: { title: '执行详情' } },
+      { path: 'defects/:id', name: 'mobile-defect-detail', component: () => import('@/views/mobile/MobileDefectDetail.vue'), meta: { title: '缺陷详情' } },
+      { path: 'tasks/:id', name: 'mobile-task-detail', component: () => import('@/views/mobile/MobileTaskDetail.vue'), meta: { title: '任务详情' } },
+      { path: 'reports/:id', name: 'mobile-report-detail', component: () => import('@/views/mobile/MobileReportDetail.vue'), meta: { title: '报告详情' } },
     ],
   },
   {

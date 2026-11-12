@@ -15,30 +15,60 @@
         <el-select v-model="projectFilter" placeholder="项目" clearable style="width: 160px">
           <el-option v-for="project in db.projects" :key="project.id" :label="project.name" :value="project.id" />
         </el-select>
-        <el-select v-model="planFilter" placeholder="测试计划" clearable filterable style="width: 180px">
-          <el-option v-for="plan in db.plans" :key="plan.id" :label="`${plan.code} · ${plan.name}`" :value="plan.id" />
-        </el-select>
         <el-select v-model="resultFilter" placeholder="结果" clearable style="width: 110px">
           <el-option v-for="(row, key) in runResult.map" :key="key" :label="row.label" :value="key" />
         </el-select>
-        <el-select v-model="testerFilter" placeholder="执行人" clearable style="width: 120px">
+        <el-button text @click="resetFilters">重置</el-button>
+        <span class="grow" />
+        <ListViewControls
+          v-model:view="viewMode"
+          v-model:advanced="advancedOpen"
+          :saved-views="savedViews"
+          :active-count="activeFilterCount"
+          :selection="selection.length"
+          @save="handleSaveView"
+          @apply="(view) => applyFilter(view.filters)"
+          @clear="clearFilters"
+          @delete-view="removeView"
+        >
+          <template #bulk>
+            <template v-if="selection.length">
+              <el-button size="small" @click="bulkExport">导出所选</el-button>
+              <el-button v-if="app.can('delete')" size="small" type="danger" plain @click="bulkDelete">批量删除</el-button>
+            </template>
+          </template>
+        </ListViewControls>
+        <span class="bf-filter-count">PASS {{ resultCounts.PASS }} · FAIL {{ resultCounts.FAIL }}</span>
+      </div>
+
+      <div v-if="advancedOpen" class="advanced-row">
+        <el-select v-model="planFilter" placeholder="测试计划" clearable filterable size="small" style="width: 210px">
+          <el-option v-for="plan in db.plans" :key="plan.id" :label="`${plan.code} · ${plan.name}`" :value="plan.id" />
+        </el-select>
+        <el-select v-model="testerFilter" placeholder="执行人" clearable size="small" style="width: 120px">
           <el-option v-for="member in db.members" :key="member.id" :label="member.name" :value="member.id" />
         </el-select>
         <el-date-picker
           v-model="dateRange"
           type="daterange"
-          size="default"
+          size="small"
           value-format="YYYY-MM-DD"
           start-placeholder="开始"
           end-placeholder="结束"
           style="width: 230px"
         />
-        <el-button text @click="resetFilters">重置</el-button>
-        <span class="grow" />
-        <span class="bf-filter-count">PASS {{ resultCounts.PASS }} · FAIL {{ resultCounts.FAIL }}</span>
+        <span class="bf-sub">按执行日期筛选，可与搜索、项目、结果组合。</span>
       </div>
 
-      <el-table :data="paged" size="small" @sort-change="onSortChange" @row-click="(row: Execution) => router.push(`/test-executions/${row.id}`)">
+      <el-table
+        v-if="viewMode === 'table'"
+        :data="paged"
+        size="small"
+        @sort-change="onSortChange"
+        @selection-change="onSelectionChange"
+        @row-click="(row: Execution) => router.push(`/test-executions/${row.id}`)"
+      >
+        <el-table-column type="selection" width="38" />
         <el-table-column prop="code" label="执行编号" width="104" sortable="custom">
           <template #default="{ row }"><span class="bf-table-code">{{ row.code }}</span></template>
         </el-table-column>
@@ -79,13 +109,36 @@
         <el-table-column prop="startedAt" label="执行时间" width="104" sortable="custom">
           <template #default="{ row }"><span class="bf-sub num">{{ fmtDate(row.startedAt) }}</span></template>
         </el-table-column>
-        <el-table-column label="操作" width="92" fixed="right">
+        <el-table-column label="操作" width="132" fixed="right">
           <template #default="{ row }">
+            <el-button size="small" text @click.stop="openQuick(row)">速览</el-button>
             <el-button size="small" text @click.stop="router.push(`/test-executions/${row.id}`)">详情</el-button>
             <el-button v-if="app.can('delete')" size="small" text type="danger" @click.stop="removeRun(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
+
+      <div v-else class="run-cards">
+        <EntityCard
+          v-for="run in paged"
+          :key="run.id"
+          :title="caseName(run.caseId)"
+          :subtitle="`${run.code} · ${projectName(run.projectId)}`"
+          @click="router.push(`/test-executions/${run.id}`)"
+        >
+          <template #badge>
+            <StatusPill :label="runResult.get(run.result).label" :tone="runResult.get(run.result).tone" dot />
+          </template>
+          <div class="card-line"><span>产品版本</span><b>{{ versionLabel(run.hardwareVersionId) }}</b></div>
+          <div class="card-line"><span>执行人</span><b>{{ memberName(run.testerId) }}</b></div>
+          <div class="card-line"><span>工况</span><b>{{ run.conditions }}</b></div>
+          <div class="card-line"><span>时间</span><b>{{ fmtDate(run.startedAt) }}</b></div>
+          <template #actions>
+            <el-button size="small" text @click.stop="openQuick(run)">速览</el-button>
+            <el-button size="small" text @click.stop="router.push(`/test-executions/${run.id}`)">打开</el-button>
+          </template>
+        </EntityCard>
+      </div>
       <DataPager v-model:page="page" v-model:page-size="pageSize" :total="total" />
     </section>
 
@@ -128,11 +181,40 @@
         <el-button type="primary" @click="createRun">创建并录入</el-button>
       </template>
     </el-dialog>
+
+    <el-drawer v-model="quickOpen" title="执行速览" size="480px">
+      <template v-if="quickRun">
+        <div class="quick-head">
+          <span class="mono">{{ quickRun.code }}</span>
+          <StatusPill :label="runResult.get(quickRun.result).label" :tone="runResult.get(quickRun.result).tone" dot />
+        </div>
+        <h3 class="quick-title">{{ caseName(quickRun.caseId) }}</h3>
+        <p class="quick-desc">{{ projectName(quickRun.projectId) }} · {{ productName(quickRun.productId) }} · {{ versionLabel(quickRun.hardwareVersionId) }}</p>
+        <div class="quick-meta">
+          <div><span>执行人</span><b>{{ memberName(quickRun.testerId) }}</b></div>
+          <div><span>执行时间</span><b>{{ fmtDateTime(quickRun.startedAt) }}</b></div>
+          <div><span>工况</span><b>{{ quickRun.conditions }}</b></div>
+          <div><span>设备</span><b>{{ quickRun.deviceIds.map(deviceLabel).join('、') || '未记录' }}</b></div>
+        </div>
+        <h4 class="quick-sub">测量值</h4>
+        <div class="quick-measures">
+          <div v-for="measurement in quickRun.measurements" :key="measurement.id" class="quick-measure">
+            <span>{{ measurement.param }}</span>
+            <b>{{ measurement.value ?? '—' }} {{ measurement.unit }}</b>
+            <StatusPill :label="runResult.get(measurement.result ?? 'PENDING').label" :tone="runResult.get(measurement.result ?? 'PENDING').tone" />
+          </div>
+        </div>
+        <div class="quick-actions">
+          <el-button size="small" type="primary" @click="router.push(`/test-executions/${quickRun.id}`)">打开完整执行详情</el-button>
+          <el-button size="small" @click="router.push(`/mobile/executions/${quickRun.id}`)">移动端查看</el-button>
+        </div>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, Plus, Search } from 'lucide-vue-next'
@@ -141,22 +223,83 @@ import { db } from '@/services/db'
 import { executionService } from '@/services/executionService'
 import { useAppStore } from '@/stores/app'
 import { useTable } from '@/composables/useTable'
+import { useListView } from '@/composables/useListView'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import DataPager from '@/components/common/DataPager.vue'
-import { fmtDate, runResult } from '@/utils/format'
+import ListViewControls from '@/components/common/ListViewControls.vue'
+import EntityCard from '@/components/common/EntityCard.vue'
+import { fmtDate, fmtDateTime, runResult } from '@/utils/format'
 import { downloadText, toCsv } from '@/utils/csv'
 
 const route = useRoute()
 const router = useRouter()
 const app = useAppStore()
 
-const keyword = ref('')
-const projectFilter = ref(typeof route.query.project === 'string' ? route.query.project : '')
-const planFilter = ref('')
-const resultFilter = ref<RunResult | ''>('')
-const testerFilter = ref('')
-const dateRange = ref<[string, string] | null>(null)
+const {
+  viewMode,
+  advancedOpen,
+  savedViews,
+  saveView,
+  removeView,
+  persistFilters,
+  loadFilters,
+} = useListView('executions')
+const stored = loadFilters()
+
+const keyword = ref(stored.keyword ?? '')
+const projectFilter = ref(
+  typeof route.query.project === 'string' ? route.query.project : (stored.project ?? ''),
+)
+const planFilter = ref(stored.plan ?? '')
+const resultFilter = ref<RunResult | ''>((stored.result as RunResult) ?? '')
+const testerFilter = ref(stored.tester ?? '')
+const rangeFromStored = stored.range ? stored.range.split(',') : []
+const dateRange = ref<[string, string] | null>(
+  rangeFromStored.length === 2 && rangeFromStored[0] && rangeFromStored[1]
+    ? [rangeFromStored[0], rangeFromStored[1]]
+    : null,
+)
+const selection = ref<Execution[]>([])
+const quickRun = ref<Execution | null>(null)
+const quickOpen = ref(false)
+
+const filterPayload = computed<Record<string, string>>(() => ({
+  keyword: keyword.value,
+  project: projectFilter.value,
+  plan: planFilter.value,
+  result: resultFilter.value,
+  tester: testerFilter.value,
+  range: dateRange.value ? dateRange.value.join(',') : '',
+}))
+
+const activeFilterCount = computed(
+  () => [keyword.value, projectFilter.value, planFilter.value, resultFilter.value, testerFilter.value, dateRange.value].filter(Boolean).length,
+)
+
+const applyFilter = (filters: Record<string, string>) => {
+  keyword.value = filters.keyword ?? ''
+  projectFilter.value = filters.project ?? ''
+  planFilter.value = filters.plan ?? ''
+  resultFilter.value = (filters.result as RunResult) ?? ''
+  testerFilter.value = filters.tester ?? ''
+  const range = filters.range ? filters.range.split(',') : []
+  dateRange.value = range.length === 2 ? [range[0], range[1]] : null
+}
+
+const clearFilters = () => {
+  keyword.value = ''
+  projectFilter.value = ''
+  planFilter.value = ''
+  resultFilter.value = ''
+  testerFilter.value = ''
+  dateRange.value = null
+}
+
+const handleSaveView = (name: string) => {
+  saveView(name, filterPayload.value)
+  ElMessage.success(`筛选方案「${name}」已保存`)
+}
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -182,6 +325,11 @@ const accessors = {
 
 const { page, pageSize, total, paged, onSortChange } = useTable(filtered, { pageSize: 10, accessors })
 
+watch(filterPayload, (value) => {
+  persistFilters(value)
+  page.value = 1
+})
+
 const resultCounts = computed(() => {
   const base: Record<RunResult, number> = { PASS: 0, FAIL: 0, BLOCKED: 0, SKIPPED: 0, PENDING: 0 }
   filtered.value.forEach((row) => {
@@ -198,14 +346,7 @@ const versionLabel = (id?: string) => (id ? db.versions.find((v) => v.id === id)
 const memberName = (id: string) => db.members.find((m) => m.id === id)?.name ?? id
 const deviceLabel = (id: string) => db.devices.find((d) => d.id === id)?.code ?? id
 
-const resetFilters = () => {
-  keyword.value = ''
-  projectFilter.value = ''
-  planFilter.value = ''
-  resultFilter.value = ''
-  testerFilter.value = ''
-  dateRange.value = null
-}
+const resetFilters = () => clearFilters()
 
 const dialogOpen = ref(false)
 const form = reactive({
@@ -276,12 +417,12 @@ const removeRun = async (row: Execution) => {
   }
 }
 
-const exportCsv = () => {
+const writeCsv = (rows: Execution[]) => {
   downloadText(
     `benchflow-executions-${new Date().toISOString().slice(0, 10)}.csv`,
     toCsv(
       ['执行编号', '测试用例', '计划', '项目', '产品', '硬件版本', '固件版本', '执行人', '工况', '结果', '执行时间'],
-      filtered.value.map((r) => [
+      rows.map((r) => [
         r.code,
         caseName(r.caseId),
         planCode(r.planId),
@@ -296,11 +437,160 @@ const exportCsv = () => {
       ]),
     ),
   )
-  ElMessage.success('已导出执行记录 CSV')
+  ElMessage.success(`已导出 ${rows.length} 条执行记录`)
+}
+
+const exportCsv = () => writeCsv(filtered.value)
+const bulkExport = () => writeCsv(selection.value)
+const onSelectionChange = (rows: Execution[]) => {
+  selection.value = rows
+}
+
+const bulkDelete = async () => {
+  if (!selection.value.length) return
+  try {
+    await ElMessageBox.confirm(`删除 ${selection.value.length} 条执行记录？关联缺陷的执行会被跳过。`, '批量删除执行', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    let removed = 0
+    selection.value.forEach((run) => {
+      try {
+        executionService.remove(run.id)
+        removed += 1
+      } catch {
+        // skip linked executions
+      }
+    })
+    selection.value = []
+    ElMessage.success(`已删除 ${removed} 条执行记录`)
+  } catch {
+    // cancelled
+  }
+}
+
+const openQuick = (run: Execution) => {
+  quickRun.value = run
+  quickOpen.value = true
 }
 </script>
 
 <style scoped>
+.advanced-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bf-surface-2);
+  border-bottom: 1px solid var(--bf-border);
+  flex-wrap: wrap;
+}
+
+.run-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.card-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.3px;
+}
+
+.card-line span {
+  color: var(--bf-ink-3);
+  flex: none;
+}
+
+.card-line b {
+  font-weight: 500;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.quick-head .mono {
+  font-size: 11px;
+  color: var(--bf-primary);
+}
+
+.quick-title {
+  font-size: 18px;
+  font-weight: 650;
+  margin: 5px 0 3px;
+}
+
+.quick-desc {
+  font-size: 11.5px;
+  color: var(--bf-ink-3);
+}
+
+.quick-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 14px 0;
+  padding: 10px;
+  background: var(--bf-surface-2);
+  border-radius: 6px;
+}
+
+.quick-meta div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+}
+
+.quick-meta span {
+  color: var(--bf-ink-3);
+}
+
+.quick-sub {
+  font-size: 11.5px;
+  color: var(--bf-ink-2);
+  margin-bottom: 6px;
+}
+
+.quick-measures {
+  display: flex;
+  flex-direction: column;
+}
+
+.quick-measure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--bf-border);
+  font-size: 11.5px;
+}
+
+.quick-measure span:first-child {
+  flex: 1;
+}
+
+.quick-measure b {
+  font-weight: 600;
+}
+
+.quick-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 14px;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

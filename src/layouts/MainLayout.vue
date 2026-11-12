@@ -10,22 +10,67 @@
       </div>
 
       <nav class="nav">
-        <div v-for="group in visibleGroups" :key="group.title" class="nav-group">
-          <div v-if="!isCollapsed" class="nav-title">{{ group.title }}</div>
-          <router-link
-            v-for="item in group.items"
-            :key="item.to"
-            :to="item.to"
-            class="nav-item"
-            :class="{ active: isActive(item.to) }"
-            :title="item.label"
-            @click="mobileOpen = false"
-          >
-            <component :is="item.icon" :size="16" class="nav-icon" />
-            <span v-if="!isCollapsed" class="nav-label">{{ item.label }}</span>
-            <span v-if="!isCollapsed && badgeCount(item) > 0" class="nav-badge">{{ badgeCount(item) }}</span>
-          </router-link>
-        </div>
+        <template v-if="isCollapsed">
+          <div v-for="group in visibleGroups" :key="group.key" class="nav-mini-group">
+            <div class="nav-mini-title" :title="group.label">{{ group.label.slice(0, 1) }}</div>
+            <router-link
+              v-for="item in group.items"
+              :key="item.to"
+              :to="item.to"
+              class="nav-item mini"
+              :class="{ active: isActive(item.to) }"
+              :title="`${group.label} / ${item.label}`"
+              @click="mobileOpen = false"
+            >
+              <component :is="item.icon" :size="17" class="nav-icon" />
+              <span v-if="badgeCount(item) > 0" class="nav-dot" />
+            </router-link>
+          </div>
+        </template>
+
+        <template v-else>
+          <div v-for="group in visibleGroups" :key="group.key" class="nav-group">
+            <router-link
+              v-if="group.items.length === 1"
+              :to="group.items[0].to"
+              class="nav-group-head single"
+              :class="{ 'active-group': isActive(group.items[0].to) }"
+              @click="mobileOpen = false"
+            >
+              <component :is="group.icon" :size="16" class="group-icon" />
+              <span class="group-label">{{ group.label }}</span>
+              <span v-if="badgeCount(group.items[0]) > 0" class="nav-badge">{{ badgeCount(group.items[0]) }}</span>
+            </router-link>
+
+            <button
+              v-else
+              type="button"
+              class="nav-group-head"
+              :class="{ 'active-group': activeGroupKey === group.key }"
+              :aria-expanded="isGroupOpen(group.key)"
+              @click="toggleGroup(group.key)"
+            >
+              <component :is="group.icon" :size="16" class="group-icon" />
+              <span class="group-label">{{ group.label }}</span>
+              <ChevronDown :size="13" class="group-chevron" :class="{ open: isGroupOpen(group.key) }" />
+            </button>
+
+            <div v-show="group.items.length > 1 && isGroupOpen(group.key)" class="nav-children">
+              <router-link
+                v-for="item in group.items"
+                :key="item.to"
+                :to="item.to"
+                class="nav-item child"
+                :class="{ active: isActive(item.to) }"
+                @click="mobileOpen = false"
+              >
+                <component :is="item.icon" :size="15" class="nav-icon" />
+                <span class="nav-label">{{ item.label }}</span>
+                <span v-if="badgeCount(item) > 0" class="nav-badge">{{ badgeCount(item) }}</span>
+              </router-link>
+            </div>
+          </div>
+        </template>
       </nav>
 
       <div class="sidebar-foot">
@@ -49,28 +94,11 @@
         </div>
 
         <div class="search-wrap">
-          <Search :size="15" class="search-icon" />
-          <input
-            v-model="keyword"
-            class="search-input"
-            placeholder="搜索项目 / 用例 / 执行 / 缺陷"
-            @focus="searchOpen = true"
-            @blur="closeSearch"
-          />
-          <div v-if="searchOpen && keyword.trim()" class="search-panel">
-            <div v-if="searchResults.length === 0" class="search-empty">没有匹配结果</div>
-            <button
-              v-for="row in searchResults"
-              :key="row.to + row.label"
-              type="button"
-              class="search-row"
-              @mousedown.prevent="go(row.to)"
-            >
-              <span class="tag">{{ row.type }}</span>
-              <span class="label">{{ row.label }}</span>
-              <span class="sub mono">{{ row.sub }}</span>
-            </button>
-          </div>
+          <button class="search-trigger" type="button" title="全局搜索与快捷操作 (Ctrl+K)" @click="cmdkOpen = true">
+            <Search :size="15" />
+            <span>搜索项目、执行、缺陷或执行操作…</span>
+            <kbd>Ctrl K</kbd>
+          </button>
         </div>
 
         <div class="topbar-right">
@@ -153,15 +181,16 @@
 
     <IdentityDialog v-model="identityOpen" />
     <SyncInfoDialog v-model="syncOpen" />
+    <CommandPalette v-model="cmdkOpen" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Bell, ChevronDown, ChevronRight, Menu, MonitorSmartphone, Search } from 'lucide-vue-next'
-import { NAV_GROUPS } from '@/router/nav'
+import { NAV_GROUPS, navGroupOf } from '@/router/nav'
 import type { NavItem } from '@/router/nav'
 import { db } from '@/services/db'
 import { notificationService } from '@/services/orgService'
@@ -169,10 +198,13 @@ import { useAppStore } from '@/stores/app'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { ROLE_LABEL } from '@/utils/permission'
 import { fromNow } from '@/utils/format'
+import { rememberRecent } from '@/utils/recents'
+import type { RecentItem } from '@/utils/recents'
 import UserAvatar from '@/components/common/UserAvatar.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import IdentityDialog from '@/components/dialogs/IdentityDialog.vue'
 import SyncInfoDialog from '@/components/dialogs/SyncInfoDialog.vue'
+import CommandPalette from '@/components/layout/CommandPalette.vue'
 
 const app = useAppStore()
 const workspace = useWorkspaceStore()
@@ -182,11 +214,101 @@ const router = useRouter()
 const mobileOpen = ref(false)
 const identityOpen = ref(false)
 const syncOpen = ref(false)
-const keyword = ref('')
-const searchOpen = ref(false)
+const cmdkOpen = ref(false)
 const isNarrow = ref(false)
 
 const isCollapsed = computed(() => app.sidebarCollapsed && !isNarrow.value)
+
+const OPEN_GROUPS_KEY = 'benchflow.nav.openGroups.v1'
+const loadOpenGroups = (): string[] => {
+  try {
+    const raw = localStorage.getItem(OPEN_GROUPS_KEY)
+    const parsed = raw ? (JSON.parse(raw) as string[]) : []
+    return Array.isArray(parsed) ? parsed.filter((key) => NAV_GROUPS.some((g) => g.key === key)) : []
+  } catch {
+    return []
+  }
+}
+const openGroups = ref<string[]>(loadOpenGroups())
+const activeGroupKey = computed(() => navGroupOf(route.path)?.key ?? '')
+const isGroupOpen = (key: string) => openGroups.value.includes(key)
+const persistOpenGroups = () => {
+  try {
+    localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(openGroups.value))
+  } catch {
+    // ignore
+  }
+}
+const toggleGroup = (key: string) => {
+  if (openGroups.value.includes(key)) {
+    openGroups.value = openGroups.value.filter((item) => item !== key)
+  } else {
+    openGroups.value = [...openGroups.value, key]
+  }
+  persistOpenGroups()
+}
+
+const rememberCurrentRoute = () => {
+  const path = route.path
+  const push = (type: RecentItem['type'], id: string, title: string, subtitle: string, to: string) => {
+    rememberRecent({ key: `${type}:${id}`, type, id, title, subtitle, to })
+  }
+  const projectMatch = /^\/projects\/([^/]+)$/.exec(path)
+  if (projectMatch) {
+    const project = db.projects.find((row) => row.id === projectMatch[1])
+    if (project) push('project', project.id, project.name, project.code, path)
+    return
+  }
+  const executionMatch = /^\/test-executions\/([^/]+)$/.exec(path)
+  if (executionMatch) {
+    const run = db.executions.find((row) => row.id === executionMatch[1])
+    if (run) push('execution', run.id, `${run.code} · ${run.result}`, db.cases.find((c) => c.id === run.caseId)?.name ?? '', path)
+    return
+  }
+  const defectMatch = /^\/defects\/([^/]+)$/.exec(path)
+  if (defectMatch) {
+    const defect = db.defects.find((row) => row.id === defectMatch[1])
+    if (defect) push('defect', defect.id, defect.title, defect.code, path)
+    return
+  }
+  const planMatch = /^\/test-plans\/([^/]+)$/.exec(path)
+  if (planMatch) {
+    const plan = db.plans.find((row) => row.id === planMatch[1])
+    if (plan) push('plan', plan.id, plan.name, plan.code, path)
+    return
+  }
+  const caseMatch = /^\/test-cases\/([^/]+)\/edit$/.exec(path)
+  if (caseMatch) {
+    const testCase = db.cases.find((row) => row.id === caseMatch[1])
+    if (testCase) push('case', testCase.id, testCase.name, testCase.code, path)
+    return
+  }
+  const reportMatch = /^\/reports\/([^/]+)$/.exec(path)
+  if (reportMatch) {
+    const report = db.reports.find((row) => row.id === reportMatch[1])
+    if (report) push('report', report.id, report.title, report.code, path)
+    return
+  }
+  const productMatch = /^\/products\/([^/]+)$/.exec(path)
+  if (productMatch) {
+    const product = db.products.find((row) => row.id === productMatch[1])
+    if (product) push('product', product.id, product.name, product.code, path)
+  }
+}
+
+watch(
+  () => route.path,
+  () => {
+    const key = activeGroupKey.value
+    if (key && !openGroups.value.includes(key)) {
+      openGroups.value = [...openGroups.value, key]
+      persistOpenGroups()
+    }
+    mobileOpen.value = false
+    rememberCurrentRoute()
+  },
+  { immediate: true },
+)
 
 const visibleGroups = computed(() =>
   NAV_GROUPS.map((group) => ({
@@ -195,10 +317,7 @@ const visibleGroups = computed(() =>
   })).filter((group) => group.items.length > 0),
 )
 
-const moduleTitle = computed(() => {
-  const group = NAV_GROUPS.find((g) => g.items.some((i) => route.path.startsWith(i.to)))
-  return group?.title ?? 'BenchFlow'
-})
+const moduleTitle = computed(() => navGroupOf(route.path)?.label ?? 'BenchFlow')
 
 const isActive = (to: string) => route.path === to || route.path.startsWith(`${to}/`)
 
@@ -212,50 +331,9 @@ const badgeCount = (item: NavItem): number => {
 const notices = computed(() => notificationService.list(app.currentUser.id).slice(0, 6))
 const unread = computed(() => notificationService.unread(app.currentUser.id))
 
-const searchResults = computed(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  if (!kw) return [] as { type: string; label: string; sub: string; to: string }[]
-  const rows: { type: string; label: string; sub: string; to: string }[] = []
-  db.projects
-    .filter((p) => `${p.code} ${p.name} ${p.tags.join(' ')}`.toLowerCase().includes(kw))
-    .slice(0, 3)
-    .forEach((p) => rows.push({ type: '项目', label: p.name, sub: p.code, to: `/projects/${p.id}` }))
-  if (!app.isGuest) {
-    db.cases
-      .filter((c) => `${c.code} ${c.name}`.toLowerCase().includes(kw))
-      .slice(0, 3)
-      .forEach((c) => rows.push({ type: '用例', label: c.name, sub: c.code, to: `/test-cases/${c.id}/edit` }))
-    db.executions
-      .filter((e) => `${e.code} ${e.note}`.toLowerCase().includes(kw))
-      .slice(0, 3)
-      .forEach((e) => rows.push({ type: '执行', label: e.code, sub: e.result, to: `/test-executions/${e.id}` }))
-    db.defects
-      .filter((d) => `${d.code} ${d.title}`.toLowerCase().includes(kw))
-      .slice(0, 3)
-      .forEach((d) => rows.push({ type: '缺陷', label: d.title, sub: d.code, to: `/defects/${d.id}` }))
-  }
-  db.reports
-    .filter((r) => `${r.code} ${r.title}`.toLowerCase().includes(kw))
-    .slice(0, 3)
-    .forEach((r) => rows.push({ type: '报告', label: r.title, sub: r.code, to: `/reports/${r.id}` }))
-  return rows.slice(0, 10)
-})
-
 const toggleNav = () => {
   if (isNarrow.value) mobileOpen.value = !mobileOpen.value
   else app.toggleSidebar()
-}
-
-const closeSearch = () => {
-  window.setTimeout(() => {
-    searchOpen.value = false
-  }, 140)
-}
-
-const go = (to: string) => {
-  keyword.value = ''
-  searchOpen.value = false
-  router.push(to)
 }
 
 const openNotice = (notice: { id: string; read: boolean; link?: string }) => {
@@ -300,12 +378,23 @@ const handleResize = () => {
   if (!isNarrow.value) mobileOpen.value = false
 }
 
+const handleKeydown = (event: KeyboardEvent) => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    cmdkOpen.value = !cmdkOpen.value
+  }
+}
+
 onMounted(() => {
   handleResize()
   window.addEventListener('resize', handleResize)
+  window.addEventListener('keydown', handleKeydown)
 })
 
-onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+  window.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <style scoped>
@@ -380,7 +469,129 @@ onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
 }
 
 .nav-group {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+}
+
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--bf-sidebar-ink);
+  font-family: inherit;
+  font-size: 12.6px;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+}
+
+.nav-group-head:hover {
+  background: var(--bf-sidebar-bg-2);
+  color: var(--bf-sidebar-ink-strong);
+}
+
+.nav-group-head.active-group {
+  color: #fff;
+}
+
+.nav-group-head.single.active-group {
+  background: #22374d;
+}
+
+.nav-group-head.single.active-group::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: #46a58c;
+}
+
+.group-icon {
+  flex: none;
+  opacity: 0.85;
+}
+
+.group-label {
+  flex: 1;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-chevron {
+  opacity: 0.65;
+  transition: transform 0.16s ease;
+  flex: none;
+}
+
+.group-chevron.open {
+  transform: rotate(180deg);
+}
+
+.nav-children {
+  padding: 1px 0 4px;
+}
+
+.nav-item.child {
+  padding-left: 29px;
+  font-size: 12.3px;
+  color: #9db0c4;
+}
+
+.nav-item.child .nav-icon {
+  opacity: 0.72;
+}
+
+.nav-item.child.active {
+  background: #22374d;
+  color: #fff;
+}
+
+.nav-item.child.active .nav-icon {
+  opacity: 1;
+}
+
+.nav-mini-group {
+  padding: 3px 0 6px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.nav-mini-group:last-child {
+  border-bottom: none;
+}
+
+.nav-mini-title {
+  text-align: center;
+  font-size: 9px;
+  color: #5f748a;
+  letter-spacing: 0.06em;
+  padding: 2px 0 1px;
+  cursor: default;
+}
+
+.nav-item.mini {
+  justify-content: center;
+  padding: 8px 0;
+  position: relative;
+}
+
+.nav-dot {
+  position: absolute;
+  top: 5px;
+  right: 12px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #c0564b;
 }
 
 .nav-title {
@@ -542,8 +753,48 @@ onBeforeUnmount(() => window.removeEventListener('resize', handleResize))
 .search-wrap {
   position: relative;
   margin-left: auto;
-  width: 300px;
-  max-width: 32vw;
+  width: 340px;
+  max-width: 34vw;
+}
+
+.search-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--bf-border);
+  background: var(--bf-surface-2);
+  border-radius: 5px;
+  padding: 0 8px;
+  color: var(--bf-ink-3);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.search-trigger:hover {
+  border-color: #9db3cc;
+  background: #fff;
+}
+
+.search-trigger span {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-trigger kbd {
+  border: 1px solid var(--bf-border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 9.5px;
+  font-family: var(--bf-mono);
+  color: var(--bf-ink-3);
+  background: #fff;
+  flex: none;
 }
 
 .search-icon {
