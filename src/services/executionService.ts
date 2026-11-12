@@ -9,6 +9,9 @@ import type {
 } from '@/types'
 import { db, mutate } from './db'
 import { getActor } from './actor'
+import { evaluateExecution, judgeValue } from '@/utils/measurement'
+
+export { judgeValue } from '@/utils/measurement'
 
 const nowIso = () => new Date().toISOString()
 
@@ -22,20 +25,13 @@ export interface ExecutionInput {
   note: string
 }
 
-export function judgeValue(value: number | null, min?: number | null, max?: number | null): RunResult {
-  if (value === null || value === undefined || Number.isNaN(value)) return 'PENDING'
-  if (min !== null && min !== undefined && value < min) return 'FAIL'
-  if (max !== null && max !== undefined && value > max) return 'FAIL'
-  return 'PASS'
-}
-
 function recalculate(run: Execution): RunResult {
-  if (run.result === 'BLOCKED' || run.result === 'SKIPPED') return run.result
-  const measured = run.measurements
-  if (measured.some((m) => m.result === 'FAIL')) return 'FAIL'
-  if (measured.length > 0 && measured.every((m) => m.result === 'PENDING')) return 'PENDING'
-  if (run.stepResults.some((s) => s.result === 'FAIL')) return 'FAIL'
-  return 'PASS'
+  const testCase = db.cases.find((c) => c.id === run.caseId)
+  return evaluateExecution({
+    caseSteps: testCase?.steps ?? [],
+    measurements: run.measurements,
+    stepResults: run.stepResults,
+  }).result
 }
 
 export interface ExecutionDraftInput {
@@ -211,18 +207,25 @@ export const executionService = {
     })
   },
 
-  /** 提交执行：要求所有必填测量项均有值。 */
+  /** 提交执行：统一使用纯函数评估，必填测量与人工步骤未完成时拒绝提交。 */
   finish(runId: string, forcedResult?: RunResult): RunResult {
     const run = db.executions.find((e) => e.id === runId)
     if (!run) throw new Error('执行记录不存在')
     const testCase = db.cases.find((c) => c.id === run.caseId)
-    const required = (testCase?.steps ?? []).filter((s) => s.param?.required)
-    const missing = required.filter((s) => {
-      const m = run.measurements.find((x) => x.id === `MS-${s.id}`)
-      return !m || m.value === null
+    const evaluation = evaluateExecution({
+      caseSteps: testCase?.steps ?? [],
+      measurements: run.measurements,
+      stepResults: run.stepResults,
     })
-    if (missing.length > 0 && !forcedResult) {
-      throw new Error(`仍有 ${missing.length} 个必填测量项未录入：${missing.map((s) => s.param?.name).join('、')}`)
+    if (!forcedResult && !evaluation.isComplete) {
+      const parts: string[] = []
+      if (evaluation.missing.length > 0) {
+        parts.push(`必填测量项未录入：${evaluation.missing.map((m) => m.param).join('、')}`)
+      }
+      if (evaluation.pendingManual.length > 0) {
+        parts.push(`人工步骤未判定：${evaluation.pendingManual.map((s) => s.stepName).join('、')}`)
+      }
+      throw new Error(parts.join('；') || '仍有未完成项，不能提交')
     }
     const actor = getActor()
     let result: RunResult = run.result

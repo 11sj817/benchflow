@@ -126,7 +126,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Download, Plus, Search } from 'lucide-vue-next'
 import type { Report, ReportStatus, ReportType } from '@/types'
@@ -141,6 +141,7 @@ import { fmtDate, reportStatus, reportType } from '@/utils/format'
 import { downloadText, toCsv } from '@/utils/csv'
 
 const router = useRouter()
+const route = useRoute()
 const app = useAppStore()
 
 const keyword = ref('')
@@ -251,6 +252,8 @@ const exportList = () => {
   )
   ElMessage.success('已导出报告清单')
 }
+
+if (route.query.create === '1' && app.can('create')) openCreate()
 </script>
 
 <style scoped>

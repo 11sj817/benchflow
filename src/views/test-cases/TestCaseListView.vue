@@ -18,18 +18,41 @@
         <el-select v-model="categoryFilter" placeholder="测试分类" clearable style="width: 130px">
           <el-option v-for="(row, key) in testCategory.map" :key="key" :label="row.label" :value="key" />
         </el-select>
-        <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 110px">
-          <el-option v-for="(row, key) in caseStatus.map" :key="key" :label="row.label" :value="key" />
-        </el-select>
-        <el-select v-model="productFilter" placeholder="适用产品" clearable style="width: 180px">
-          <el-option v-for="product in db.products" :key="product.id" :label="product.name" :value="product.id" />
-        </el-select>
         <el-button text @click="resetFilters">重置</el-button>
         <span class="grow" />
+        <ListViewControls
+          v-model:view="viewMode"
+          v-model:advanced="advancedOpen"
+          :saved-views="savedViews"
+          :active-count="activeFilterCount"
+          :selection="selection.length"
+          @save="handleSaveView"
+          @apply="(view) => applyFilter(view.filters)"
+          @clear="clearFilters"
+          @delete-view="removeView"
+        >
+          <template #bulk>
+            <template v-if="selection.length">
+              <el-button size="small" @click="bulkExport">导出所选</el-button>
+              <el-button v-if="app.can('edit')" size="small" @click="bulkDeprecate">批量停用</el-button>
+            </template>
+          </template>
+        </ListViewControls>
         <span class="bf-filter-count">{{ total }} 条</span>
       </div>
 
-      <el-table :data="paged" size="small" @sort-change="onSortChange">
+      <div v-if="advancedOpen" class="advanced-row">
+        <el-select v-model="statusFilter" placeholder="状态" clearable size="small" style="width: 110px">
+          <el-option v-for="(row, key) in caseStatus.map" :key="key" :label="row.label" :value="key" />
+        </el-select>
+        <el-select v-model="productFilter" placeholder="适用产品" clearable size="small" style="width: 180px">
+          <el-option v-for="product in db.products" :key="product.id" :label="product.name" :value="product.id" />
+        </el-select>
+        <span class="bf-sub">状态与产品筛选；保存后可从「筛选方案」快速恢复。</span>
+      </div>
+
+      <el-table v-if="viewMode === 'table'" :data="paged" size="small" @sort-change="onSortChange" @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="38" />
         <el-table-column prop="code" label="编号" width="94" sortable="custom">
           <template #default="{ row }"><span class="bf-table-code">{{ row.code }}</span></template>
         </el-table-column>
@@ -85,6 +108,27 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div v-else class="case-cards">
+        <EntityCard
+          v-for="testCase in paged"
+          :key="testCase.id"
+          :title="testCase.name"
+          :subtitle="`${testCase.code} · ${testCategory.get(testCase.category).label}`"
+          @click="router.push(`/test-cases/${testCase.id}/edit`)"
+        >
+          <template #badge>
+            <StatusPill :label="caseStatus.get(testCase.status).label" :tone="caseStatus.get(testCase.status).tone" />
+          </template>
+          <div class="card-line"><span>步骤 / 测量</span><b>{{ testCase.steps.length }} / {{ paramCount(testCase) }}</b></div>
+          <div class="card-line"><span>优先级 / 版本</span><b>{{ priority.get(testCase.priority).label }} · {{ testCase.version }}</b></div>
+          <div class="card-line"><span>适用产品</span><b>{{ testCase.productIds.map(productName).join('、') || '—' }}</b></div>
+          <template #actions>
+            <el-button size="small" text @click.stop="router.push(`/test-cases/${testCase.id}/edit`)">编辑用例</el-button>
+          </template>
+        </EntityCard>
+      </div>
+
       <DataPager v-model:page="page" v-model:page-size="pageSize" :total="total" />
     </section>
 
@@ -109,7 +153,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ChevronDown, Download, Plus, Search, Upload } from 'lucide-vue-next'
@@ -118,19 +162,56 @@ import { db } from '@/services/db'
 import { testCaseService } from '@/services/testService'
 import { useAppStore } from '@/stores/app'
 import { useTable } from '@/composables/useTable'
+import { useListView } from '@/composables/useListView'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import DataPager from '@/components/common/DataPager.vue'
+import ListViewControls from '@/components/common/ListViewControls.vue'
+import EntityCard from '@/components/common/EntityCard.vue'
 import { caseStatus, fmtDate, priority, testCategory } from '@/utils/format'
 import { downloadText, parseCsv, readFileText, toCsv } from '@/utils/csv'
 
 const router = useRouter()
 const app = useAppStore()
 
-const keyword = ref('')
-const categoryFilter = ref<TestCategory | ''>('')
-const statusFilter = ref<CaseStatus | ''>('')
-const productFilter = ref('')
+const { viewMode, advancedOpen, savedViews, saveView, removeView, persistFilters, loadFilters } = useListView('test-cases')
+const stored = loadFilters()
+
+const keyword = ref(stored.keyword ?? '')
+const categoryFilter = ref<TestCategory | ''>((stored.category as TestCategory) ?? '')
+const statusFilter = ref<CaseStatus | ''>((stored.status as CaseStatus) ?? '')
+const productFilter = ref(stored.product ?? '')
+const selection = ref<TestCase[]>([])
+
+const filterPayload = computed<Record<string, string>>(() => ({
+  keyword: keyword.value,
+  category: categoryFilter.value,
+  status: statusFilter.value,
+  product: productFilter.value,
+}))
+
+const activeFilterCount = computed(
+  () => [keyword.value, categoryFilter.value, statusFilter.value, productFilter.value].filter(Boolean).length,
+)
+
+const applyFilter = (filters: Record<string, string>) => {
+  keyword.value = filters.keyword ?? ''
+  categoryFilter.value = (filters.category as TestCategory) ?? ''
+  statusFilter.value = (filters.status as CaseStatus) ?? ''
+  productFilter.value = filters.product ?? ''
+}
+
+const clearFilters = () => {
+  keyword.value = ''
+  categoryFilter.value = ''
+  statusFilter.value = ''
+  productFilter.value = ''
+}
+
+const handleSaveView = (name: string) => {
+  saveView(name, filterPayload.value)
+  ElMessage.success(`筛选方案「${name}」已保存`)
+}
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -151,16 +232,16 @@ const accessors = {
 
 const { page, pageSize, total, paged, onSortChange } = useTable(filtered, { pageSize: 10, accessors })
 
+watch(filterPayload, (value) => {
+  persistFilters(value)
+  page.value = 1
+})
+
 const paramCount = (row: TestCase) => row.steps.filter((s) => s.param).length
 const productName = (id: string) => db.products.find((p) => p.id === id)?.name ?? id
 const memberName = (id: string) => db.members.find((m) => m.id === id)?.name ?? id
 
-const resetFilters = () => {
-  keyword.value = ''
-  categoryFilter.value = ''
-  statusFilter.value = ''
-  productFilter.value = ''
-}
+const resetFilters = () => clearFilters()
 
 const onCommand = async (command: string, row: TestCase) => {
   if (command === 'duplicate') {
@@ -196,12 +277,12 @@ const onCommand = async (command: string, row: TestCase) => {
   }
 }
 
-const exportCsv = () => {
+const writeCsv = (rows: TestCase[]) => {
   downloadText(
     `benchflow-cases-${new Date().toISOString().slice(0, 10)}.csv`,
     toCsv(
       ['用例编号', '用例名称', '分类', '目的', '前置条件', '环境', '步骤数', '测量参数', '优先级', '状态', '版本', '适用产品'],
-      filtered.value.map((c) => [
+      rows.map((c) => [
         c.code,
         c.name,
         testCategory.get(c.category).label,
@@ -217,7 +298,20 @@ const exportCsv = () => {
       ]),
     ),
   )
-  ElMessage.success('已导出用例 CSV')
+  ElMessage.success(`已导出 ${rows.length} 条用例`)
+}
+
+const exportCsv = () => writeCsv(filtered.value)
+const bulkExport = () => writeCsv(selection.value)
+const onSelectionChange = (rows: TestCase[]) => {
+  selection.value = rows
+}
+
+const bulkDeprecate = () => {
+  if (!selection.value.length) return
+  selection.value.forEach((testCase) => testCaseService.setStatus(testCase.id, 'deprecated'))
+  ElMessage.success(`已停用 ${selection.value.length} 条用例`)
+  selection.value = []
 }
 
 const importOpen = ref(false)
@@ -305,6 +399,54 @@ const doImport = async () => {
 </script>
 
 <style scoped>
+.advanced-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bf-surface-2);
+  border-bottom: 1px solid var(--bf-border);
+  flex-wrap: wrap;
+}
+
+.case-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.card-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.3px;
+}
+
+.card-line span {
+  color: var(--bf-ink-3);
+}
+
+.card-line b {
+  font-weight: 500;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1280px) {
+  .case-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .case-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;

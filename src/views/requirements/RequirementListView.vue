@@ -20,20 +20,34 @@
         <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 120px">
           <el-option v-for="(row, key) in requirementStatus.map" :key="key" :label="row.label" :value="key" />
         </el-select>
-        <el-select v-model="priorityFilter" placeholder="优先级" clearable style="width: 110px">
-          <el-option v-for="(row, key) in priority.map" :key="key" :label="row.label" :value="key" />
-        </el-select>
-        <el-select v-model="sourceFilter" placeholder="来源" clearable style="width: 120px">
-          <el-option v-for="(row, key) in requirementSource.map" :key="key" :label="row.label" :value="key" />
-        </el-select>
         <el-button text @click="resetFilters">重置</el-button>
         <span class="grow" />
+        <ListViewControls
+          v-model:view="viewMode"
+          v-model:advanced="advancedOpen"
+          :saved-views="savedViews"
+          :active-count="activeFilterCount"
+          @save="handleSaveView"
+          @apply="(view) => applyFilter(view.filters)"
+          @clear="clearFilters"
+          @delete-view="removeView"
+        />
         <span class="bf-filter-count">
           已覆盖 {{ coverage.covered }} / {{ coverage.total }} · 已验证 {{ coverage.verified }}
         </span>
       </div>
 
-      <el-table :data="paged" size="small" @sort-change="onSortChange">
+      <div v-if="advancedOpen" class="advanced-row">
+        <el-select v-model="priorityFilter" placeholder="优先级" clearable size="small" style="width: 110px">
+          <el-option v-for="(row, key) in priority.map" :key="key" :label="row.label" :value="key" />
+        </el-select>
+        <el-select v-model="sourceFilter" placeholder="来源" clearable size="small" style="width: 120px">
+          <el-option v-for="(row, key) in requirementSource.map" :key="key" :label="row.label" :value="key" />
+        </el-select>
+        <span class="bf-sub">按优先级与来源筛选，可保存为常用方案。</span>
+      </div>
+
+      <el-table v-if="viewMode === 'table'" :data="paged" size="small" @sort-change="onSortChange">
         <el-table-column prop="code" label="编号" width="122" sortable="custom">
           <template #default="{ row }">
             <span class="bf-table-code">{{ row.code }}</span>
@@ -93,6 +107,29 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div v-else class="req-cards">
+        <EntityCard
+          v-for="requirement in paged"
+          :key="requirement.id"
+          :title="requirement.name"
+          :subtitle="`${requirement.code} · ${projectName(requirement.projectId)}`"
+          @click="openDrawer(requirement)"
+        >
+          <template #badge>
+            <StatusPill :label="requirementStatus.get(requirement.status).label" :tone="requirementStatus.get(requirement.status).tone" />
+          </template>
+          <div class="card-line"><span>优先级 / 来源</span><b>{{ priority.get(requirement.priority).label }} · {{ requirementSource.get(requirement.source).label }}</b></div>
+          <div class="card-line"><span>关联用例</span><b>{{ requirement.caseIds.length }} 条</b></div>
+          <div class="card-line"><span>覆盖状态</span><b>{{ requirement.caseIds.length ? (verified(requirement) ? '已验证' : '已覆盖') : '未覆盖' }}</b></div>
+          <div class="card-line"><span>负责人</span><b>{{ memberName(requirement.ownerId) }}</b></div>
+          <template #actions>
+            <el-button size="small" text @click.stop="openDrawer(requirement)">追踪</el-button>
+            <el-button v-if="app.can('edit')" size="small" text @click.stop="openEdit(requirement)">编辑</el-button>
+          </template>
+        </EntityCard>
+      </div>
+
       <DataPager v-model:page="page" v-model:page-size="pageSize" :total="total" />
     </section>
 
@@ -211,9 +248,12 @@ import { requirementService } from '@/services/projectService'
 import type { RequirementInput } from '@/services/projectService'
 import { useAppStore } from '@/stores/app'
 import { useTable } from '@/composables/useTable'
+import { useListView } from '@/composables/useListView'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import DataPager from '@/components/common/DataPager.vue'
+import ListViewControls from '@/components/common/ListViewControls.vue'
+import EntityCard from '@/components/common/EntityCard.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import { priority, requirementSource, requirementStatus, runResult } from '@/utils/format'
 import { downloadText, toCsv } from '@/utils/csv'
@@ -222,11 +262,47 @@ const route = useRoute()
 const router = useRouter()
 const app = useAppStore()
 
-const keyword = ref('')
-const projectFilter = ref(typeof route.query.project === 'string' ? route.query.project : '')
-const statusFilter = ref<RequirementStatus | ''>('')
-const priorityFilter = ref<Priority | ''>('')
-const sourceFilter = ref<RequirementSource | ''>('')
+const { viewMode, advancedOpen, savedViews, saveView, removeView, persistFilters, loadFilters } = useListView('requirements')
+const stored = loadFilters()
+
+const keyword = ref(stored.keyword ?? '')
+const projectFilter = ref(typeof route.query.project === 'string' ? route.query.project : (stored.project ?? ''))
+const statusFilter = ref<RequirementStatus | ''>((stored.status as RequirementStatus) ?? '')
+const priorityFilter = ref<Priority | ''>((stored.priority as Priority) ?? '')
+const sourceFilter = ref<RequirementSource | ''>((stored.source as RequirementSource) ?? '')
+
+const filterPayload = computed<Record<string, string>>(() => ({
+  keyword: keyword.value,
+  project: projectFilter.value,
+  status: statusFilter.value,
+  priority: priorityFilter.value,
+  source: sourceFilter.value,
+}))
+
+const activeFilterCount = computed(
+  () => [keyword.value, projectFilter.value, statusFilter.value, priorityFilter.value, sourceFilter.value].filter(Boolean).length,
+)
+
+const applyFilter = (filters: Record<string, string>) => {
+  keyword.value = filters.keyword ?? ''
+  projectFilter.value = filters.project ?? ''
+  statusFilter.value = (filters.status as RequirementStatus) ?? ''
+  priorityFilter.value = (filters.priority as Priority) ?? ''
+  sourceFilter.value = (filters.source as RequirementSource) ?? ''
+}
+
+const clearFilters = () => {
+  keyword.value = ''
+  projectFilter.value = ''
+  statusFilter.value = ''
+  priorityFilter.value = ''
+  sourceFilter.value = ''
+}
+
+const handleSaveView = (name: string) => {
+  saveView(name, filterPayload.value)
+  ElMessage.success(`筛选方案「${name}」已保存`)
+}
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -246,6 +322,11 @@ const accessors = {
 }
 
 const { page, pageSize, total, paged, onSortChange } = useTable(filtered, { pageSize: 10, accessors })
+
+watch(filterPayload, (value) => {
+  persistFilters(value)
+  page.value = 1
+})
 
 const passedCaseIds = computed(
   () => new Set(db.executions.filter((e) => e.result === 'PASS').map((e) => e.caseId)),
@@ -269,13 +350,7 @@ const projectName = (id: string) => db.projects.find((p) => p.id === id)?.name ?
 const memberName = (id: string) => db.members.find((m) => m.id === id)?.name ?? id
 const defectTitle = (code: string) => db.defects.find((d) => d.code === code)?.title ?? ''
 
-const resetFilters = () => {
-  keyword.value = ''
-  projectFilter.value = ''
-  statusFilter.value = ''
-  priorityFilter.value = ''
-  sourceFilter.value = ''
-}
+const resetFilters = () => clearFilters()
 
 const dialogOpen = ref(false)
 const editing = ref<Requirement | null>(null)
@@ -453,6 +528,51 @@ if (route.query.create === '1' && app.can('create')) openCreate()
 </script>
 
 <style scoped>
+.advanced-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bf-surface-2);
+  border-bottom: 1px solid var(--bf-border);
+  flex-wrap: wrap;
+}
+
+.req-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.card-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.3px;
+}
+
+.card-line span {
+  color: var(--bf-ink-3);
+}
+
+.card-line b {
+  font-weight: 500;
+  text-align: right;
+}
+
+@media (max-width: 1280px) {
+  .req-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .req-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;

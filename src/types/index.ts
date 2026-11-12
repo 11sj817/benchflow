@@ -216,7 +216,7 @@ export interface Measurement {
   note?: string
 }
 
-export type FileKind = 'csv' | 'xlsx' | 'json' | 'png' | 'jpg' | 'pdf' | 'zip' | 'log'
+export type FileKind = 'csv' | 'xlsx' | 'json' | 'png' | 'jpg' | 'pdf' | 'zip' | 'log' | 'audio'
 
 export interface Attachment {
   id: ID

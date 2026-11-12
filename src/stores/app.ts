@@ -5,6 +5,7 @@ import { db, loadDb } from '@/services/db'
 import { setActor } from '@/services/actor'
 import { can as permissionCan } from '@/utils/permission'
 import { SESSION_KEY } from '@/mock/seed'
+import { setServiceIdentity } from '@/services/runtime'
 
 function loadSession(): Session {
   try {
@@ -21,7 +22,7 @@ function loadSession(): Session {
 
 export const useAppStore = defineStore('app', () => {
   const session = ref<Session>(loadSession())
-  const sidebarCollapsed = ref(false)
+  const sidebarCollapsed = ref(localStorage.getItem('benchflow.sidebar.collapsed') === '1')
   const compactMode = ref(localStorage.getItem('benchflow.compact') === '1')
   const bootstrapped = ref(false)
   const lastReadNotice = ref<string | null>(null)
@@ -53,16 +54,19 @@ export const useAppStore = defineStore('app', () => {
     if (!member) return
     session.value = { userId: member.id, role: member.role, mode: 'demo' }
     setActor(member)
+    setServiceIdentity({ userId: member.id, role: member.role, orgId: db.org.code })
     persistSession()
   }
 
   function setRole(next: RoleKey): void {
     session.value = { ...session.value, role: next }
+    setServiceIdentity({ userId: session.value.userId, role: next, orgId: db.org.code })
     persistSession()
   }
 
   function toggleSidebar(): void {
     sidebarCollapsed.value = !sidebarCollapsed.value
+    localStorage.setItem('benchflow.sidebar.collapsed', sidebarCollapsed.value ? '1' : '0')
   }
 
   function setCompact(value: boolean): void {
@@ -75,6 +79,7 @@ export const useAppStore = defineStore('app', () => {
     loadDb()
     const member = db.members.find((m) => m.id === session.value.userId) ?? db.members[0]
     setActor(member)
+    setServiceIdentity({ userId: member.id, role: session.value.role, orgId: db.org.code })
     document.documentElement.classList.toggle('compact', compactMode.value)
     bootstrapped.value = true
   }

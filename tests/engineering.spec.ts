@@ -17,6 +17,7 @@ describe('工程交付物', () => {
     'docs/API_DESIGN.md',
     'docs/UI_DESIGN_SYSTEM.md',
     'docs/TEST_REPORT.md',
+    'docs/UX_REDESIGN_2.1.md',
     'docs/DEPLOYMENT.md',
   ]
 

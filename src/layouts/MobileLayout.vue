@@ -22,7 +22,7 @@
           :key="tab.to"
           :to="tab.to"
           class="m-tab"
-          :class="{ active: route.path === tab.to, primary: tab.primary }"
+          :class="{ active: isTabActive(tab.to), primary: tab.primary }"
         >
           <span class="tab-icon" :class="{ bump: tab.primary }">
             <component :is="tab.icon" :size="tab.primary ? 22 : 19" />
@@ -47,6 +47,16 @@ const tabs = [
   { label: '消息', to: '/mobile/messages', icon: Bell },
   { label: '项目', to: '/mobile/projects', icon: FolderKanban },
 ]
+
+const detailTabs = ['/mobile/executions', '/mobile/defects', '/mobile/reports', '/mobile/tasks/']
+const isTabActive = (to: string): boolean => {
+  if (to === '/mobile/home') return route.path === to
+  if (to === '/mobile/tasks') {
+    return route.path === to || detailTabs.some((prefix) => route.path.startsWith(prefix))
+  }
+  if (to === '/mobile/projects') return route.path.startsWith('/mobile/projects')
+  return route.path === to
+}
 </script>
 
 <style scoped>

@@ -253,6 +253,7 @@ import StatusPill from '@/components/common/StatusPill.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import BaseChart from '@/components/charts/BaseChart.vue'
 import { fileKind, fmtBytes, fmtDateTime, runResult } from '@/utils/format'
+import { evaluateExecution } from '@/utils/measurement'
 import { parseMeasurementCsv, readFileText } from '@/utils/csv'
 
 const route = useRoute()
@@ -266,9 +267,16 @@ const caseSteps = computed<TestStep[]>(() => {
 })
 const measurements = computed<Measurement[]>(() => run.value?.measurements ?? [])
 
-const passCount = computed(() => measurements.value.filter((m) => m.result === 'PASS').length)
-const failCount = computed(() => measurements.value.filter((m) => m.result === 'FAIL').length)
-const pendingCount = computed(() => measurements.value.filter((m) => !m.result || m.result === 'PENDING').length)
+const evaluation = computed(() =>
+  evaluateExecution({
+    caseSteps: caseSteps.value,
+    measurements: measurements.value,
+    stepResults: run.value?.stepResults ?? [],
+  }),
+)
+const passCount = computed(() => evaluation.value.passCount)
+const failCount = computed(() => evaluation.value.failCount)
+const pendingCount = computed(() => evaluation.value.missing.length + evaluation.value.pendingManual.length)
 
 const memberName = (id: string) => db.members.find((m) => m.id === id)?.name ?? id
 const planCode = (id: string) => db.plans.find((p) => p.id === id)?.code ?? id

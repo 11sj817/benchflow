@@ -162,7 +162,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download, HardDrive, Search, Upload } from 'lucide-vue-next'
 import type { EChartsOption } from 'echarts'
@@ -180,6 +181,7 @@ import { datasetCategory, fileKind, fmtBytes, fmtDate, fmtDateTime } from '@/uti
 import { downloadText, toCsv } from '@/utils/csv'
 
 const app = useAppStore()
+const route = useRoute()
 
 const keyword = ref('')
 const categoryFilter = ref<DatasetCategory | ''>('')
@@ -377,6 +379,12 @@ const exportCsv = () => {
   )
   ElMessage.success('已导出数据集清单')
 }
+
+onMounted(() => {
+  if (route.query.upload === '1' && app.can('create')) {
+    window.setTimeout(() => fileInput.value?.click(), 300)
+  }
+})
 </script>
 
 <style scoped>

@@ -18,15 +18,35 @@
         <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 120px">
           <el-option v-for="(row, key) in planStatus.map" :key="key" :label="row.label" :value="key" />
         </el-select>
-        <el-select v-model="productFilter" placeholder="产品" clearable style="width: 170px">
-          <el-option v-for="product in db.products" :key="product.id" :label="product.name" :value="product.id" />
-        </el-select>
         <el-button text @click="resetFilters">重置</el-button>
         <span class="grow" />
+        <ListViewControls
+          v-model:view="viewMode"
+          v-model:advanced="advancedOpen"
+          :saved-views="savedViews"
+          :active-count="activeFilterCount"
+          @save="handleSaveView"
+          @apply="(view) => applyFilter(view.filters)"
+          @clear="clearFilters"
+          @delete-view="removeView"
+        />
         <span class="bf-filter-count">用例总数 {{ totalCases }}</span>
       </div>
 
-      <el-table :data="paged" size="small" @sort-change="onSortChange" @row-click="(row: TestPlan) => router.push(`/test-plans/${row.id}`)">
+      <div v-if="advancedOpen" class="advanced-row">
+        <el-select v-model="productFilter" placeholder="产品" clearable size="small" style="width: 180px">
+          <el-option v-for="product in db.products" :key="product.id" :label="product.name" :value="product.id" />
+        </el-select>
+        <span class="bf-sub">按产品筛选计划；保存后可从「筛选方案」恢复。</span>
+      </div>
+
+      <el-table
+        v-if="viewMode === 'table'"
+        :data="paged"
+        size="small"
+        @sort-change="onSortChange"
+        @row-click="(row: TestPlan) => router.push(`/test-plans/${row.id}`)"
+      >
         <el-table-column prop="code" label="编号" width="118" sortable="custom">
           <template #default="{ row }"><span class="bf-table-code">{{ row.code }}</span></template>
         </el-table-column>
@@ -88,6 +108,28 @@
           </template>
         </el-table-column>
       </el-table>
+
+      <div v-else class="plan-cards">
+        <EntityCard
+          v-for="plan in paged"
+          :key="plan.id"
+          :title="plan.name"
+          :subtitle="`${plan.code} · ${projectName(plan.projectId)}`"
+          @click="router.push(`/test-plans/${plan.id}`)"
+        >
+          <template #badge>
+            <StatusPill :label="planStatus.get(plan.status).label" :tone="planStatus.get(plan.status).tone" />
+          </template>
+          <div class="card-line"><span>产品版本</span><b>{{ productName(plan.productId) }} / {{ versionLabel(plan.hardwareVersionId) }}</b></div>
+          <div class="card-line"><span>用例 / 人员</span><b>{{ plan.caseIds.length }} 条 · {{ plan.assigneeIds.length }} 人</b></div>
+          <div class="card-line"><span>进度</span><b>{{ progress(plan.id).executedCases }} / {{ progress(plan.id).totalCases }}</b></div>
+          <div class="card-line"><span>周期</span><b>{{ fmtDate(plan.startDate) }} → {{ fmtDate(plan.endDate) }}</b></div>
+          <template #actions>
+            <el-button size="small" text @click.stop="router.push(`/test-plans/${plan.id}`)">打开计划</el-button>
+          </template>
+        </EntityCard>
+      </div>
+
       <DataPager v-model:page="page" v-model:page-size="pageSize" :total="total" />
     </section>
 
@@ -160,7 +202,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { ChevronDown, Download, Plus, Search } from 'lucide-vue-next'
@@ -170,10 +212,13 @@ import { testPlanService } from '@/services/testService'
 import type { TestPlanInput } from '@/services/testService'
 import { useAppStore } from '@/stores/app'
 import { useTable } from '@/composables/useTable'
+import { useListView } from '@/composables/useListView'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import UserAvatar from '@/components/common/UserAvatar.vue'
 import DataPager from '@/components/common/DataPager.vue'
+import ListViewControls from '@/components/common/ListViewControls.vue'
+import EntityCard from '@/components/common/EntityCard.vue'
 import { fmtDate, planStatus } from '@/utils/format'
 import { downloadText, toCsv } from '@/utils/csv'
 
@@ -181,10 +226,43 @@ const route = useRoute()
 const router = useRouter()
 const app = useAppStore()
 
-const keyword = ref('')
-const projectFilter = ref(typeof route.query.project === 'string' ? route.query.project : '')
-const statusFilter = ref<PlanStatus | ''>('')
-const productFilter = ref('')
+const { viewMode, advancedOpen, savedViews, saveView, removeView, persistFilters, loadFilters } = useListView('test-plans')
+const stored = loadFilters()
+
+const keyword = ref(stored.keyword ?? '')
+const projectFilter = ref(typeof route.query.project === 'string' ? route.query.project : (stored.project ?? ''))
+const statusFilter = ref<PlanStatus | ''>((stored.status as PlanStatus) ?? '')
+const productFilter = ref(stored.product ?? '')
+
+const filterPayload = computed<Record<string, string>>(() => ({
+  keyword: keyword.value,
+  project: projectFilter.value,
+  status: statusFilter.value,
+  product: productFilter.value,
+}))
+
+const activeFilterCount = computed(
+  () => [keyword.value, projectFilter.value, statusFilter.value, productFilter.value].filter(Boolean).length,
+)
+
+const applyFilter = (filters: Record<string, string>) => {
+  keyword.value = filters.keyword ?? ''
+  projectFilter.value = filters.project ?? ''
+  statusFilter.value = (filters.status as PlanStatus) ?? ''
+  productFilter.value = filters.product ?? ''
+}
+
+const clearFilters = () => {
+  keyword.value = ''
+  projectFilter.value = ''
+  statusFilter.value = ''
+  productFilter.value = ''
+}
+
+const handleSaveView = (name: string) => {
+  saveView(name, filterPayload.value)
+  ElMessage.success(`筛选方案「${name}」已保存`)
+}
 
 const filtered = computed(() => {
   const kw = keyword.value.trim().toLowerCase()
@@ -205,6 +283,11 @@ const accessors = {
 
 const { page, pageSize, total, paged, onSortChange } = useTable(filtered, { pageSize: 10, accessors })
 
+watch(filterPayload, (value) => {
+  persistFilters(value)
+  page.value = 1
+})
+
 const totalCases = computed(() => filtered.value.reduce((sum, p) => sum + p.caseIds.length, 0))
 const progress = (id: string) => testPlanService.progress(id)
 const projectName = (id: string) => db.projects.find((p) => p.id === id)?.name ?? id
@@ -213,12 +296,7 @@ const versionLabel = (id?: string) => (id ? db.versions.find((v) => v.id === id)
 const memberName = (id: string) => db.members.find((m) => m.id === id)?.name ?? id
 const memberColor = (id: string) => db.members.find((m) => m.id === id)?.color ?? '#6b7a8f'
 
-const resetFilters = () => {
-  keyword.value = ''
-  projectFilter.value = ''
-  statusFilter.value = ''
-  productFilter.value = ''
-}
+const resetFilters = () => clearFilters()
 
 const dialogOpen = ref(false)
 const saving = ref(false)
@@ -363,6 +441,51 @@ if (route.query.create === '1' && app.can('create')) openCreate()
 </script>
 
 <style scoped>
+.advanced-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bf-surface-2);
+  border-bottom: 1px solid var(--bf-border);
+  flex-wrap: wrap;
+}
+
+.plan-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+
+.card-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.3px;
+}
+
+.card-line span {
+  color: var(--bf-ink-3);
+}
+
+.card-line b {
+  font-weight: 500;
+  text-align: right;
+}
+
+@media (max-width: 1280px) {
+  .plan-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .plan-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
