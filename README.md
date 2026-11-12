@@ -5,6 +5,8 @@
 
 > BenchFlow 为暂定项目代号，仅用于内部产品讨论，未声明商标、域名或已完成任何认证。
 
+**在线演示：** <https://11sj817.github.io/benchflow/> · 仓库：<https://github.com/11sj817/benchflow>
+
 BenchFlow 把「项目 → 产品版本 → 需求 → 测试计划 → 测试用例 → 测试执行 → 测量数据 → 缺陷闭环 → 报告交付」放在同一条可追溯链路上，面向电子硬件、电力电子、嵌入式团队、高校实验室、中小研发企业以及外部供应商 / 客户。
 
 当前仓库是**可运行、可操作、可部署**的前端产品，不是静态设计稿；但仍然是**无后端的本地演示模式**，不提供真实云端多人协同。
@@ -131,16 +133,22 @@ tests/               数据完整性 / 持久化 / 缺陷闭环 / CSV / 统计 /
 
 ---
 
-## 6. GitHub Pages 部署
+## 6. GitHub Pages 部署（已上线）
 
-1. 推送仓库到 GitHub（默认分支 `main`）。
-2. Settings → Pages → Build and deployment → Source 选择 **GitHub Actions**。
-3. 推送到 `main` 后，`.github/workflows/deploy.yml` 会执行 typecheck → lint → test → build → 上传 → 部署。
-4. 访问 `https://<user>.github.io/<repo>/`。
+- **在线演示**：<https://11sj817.github.io/benchflow/>
+- **GitHub 仓库**：<https://github.com/11sj817/benchflow>
+- **Actions**：<https://github.com/11sj817/benchflow/actions>
 
-Vite `base: './'` + hash 路由，资源与刷新在子路径下均可用。详细说明与故障排查见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
+推送 `main` 后，`.github/workflows/deploy.yml` 自动执行 typecheck → lint → test → build → 上传 → 部署。
+Pages 的 Source 已设置为 **GitHub Actions**；Vite `base: './'` + hash 路由，资源与刷新在子路径下均可用。
 
-> 本仓库尚未配置远程地址，因此没有执行 `git push`，也没有声称线上部署已成功。请按上述步骤在你的 GitHub 仓库启用 Pages。
+```bash
+git remote add origin https://github.com/11sj817/benchflow.git
+git push -u origin main
+```
+
+最近一次部署验证：commit `dee59ef`，工作流成功，线上页面 HTTP 200，无头浏览器实拍确认工作台、图表与演示数据正常渲染。
+详细说明与故障排查见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 
 ---
 

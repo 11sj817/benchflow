@@ -103,4 +103,4 @@
 - 演示数据关联一致，缺陷闭环与报告审核约束由服务层强制。
 - 当前不具备真实多用户与后端能力，相关限制已在界面与文档中明确标注。
 
-> 本报告不声称 GitHub Pages 已上线：仓库尚未配置远程地址，部署需按 `docs/DEPLOYMENT.md` 在目标仓库启用。
+> **GitHub Pages 已上线并验证**：<https://11sj817.github.io/benchflow/>。commit `dee59ef` 的 Actions run `43238354278` 成功（build + deploy），线上首页返回 HTTP 200，无头 Chrome 实拍确认工作台、图表与演示数据正常渲染；移动端与工位路由通过本地同构建产物验证。

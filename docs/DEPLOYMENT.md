@@ -74,15 +74,18 @@ push(main) / workflow_dispatch
 
 ### 3.4 访问
 
-部署完成后：
+当前仓库已启用 Pages 并完成部署：
 
 ```text
-https://<user>.github.io/<repo>/
-https://<user>.github.io/<repo>/#/mobile/home
-https://<user>.github.io/<repo>/#/station
+https://11sj817.github.io/benchflow/
+https://11sj817.github.io/benchflow/#/mobile/home
+https://11sj817.github.io/benchflow/#/station
 ```
 
-首页会进入演示身份选择（`#/login`）；可直接选择“测试负责人视角”。
+首页默认进入工作台（未登录也使用本地演示身份）；可在顶部切换身份/角色。
+
+> 部署记录：2026-11-12，Actions run `43238354278`（commit `dee59ef`）成功；线上页面返回 HTTP 200，无头浏览器实拍确认工作台与图表渲染正常。
+> 其他仓库复用时，只需把上述 URL 换成 `<user>.github.io/<repo>`，并按 3.1–3.2 启用 Pages。
 
 ---
 
@@ -150,4 +153,4 @@ server {
 - [ ] 移动端与工位模式可打开（顶部“终端预览”）
 - [ ] 数据刷新后保留，恢复演示数据可用
 
-> 当前仓库未配置远程地址，未执行 `git push`；请在你的 GitHub 仓库按上述步骤启用 Pages。部署是否成功以 Actions 与线上访问为准，不以本地构建替代。
+仓库 `11sj817/benchflow` 已于 2026-11-12 完成上述验证：Pages Source = GitHub Actions，run `43236468237`（首个部署）与 `43238354278`（图表刻度修复）均成功，线上 `https://11sj817.github.io/benchflow/` 返回 HTTP 200 并通过无头浏览器渲染检查。
