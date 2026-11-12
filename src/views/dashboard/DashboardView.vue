@@ -306,6 +306,7 @@ const trendOption = computed<EChartsOption>(() => ({
       type: 'value',
       name: '次数',
       minInterval: 1,
+      interval: 1,
       nameTextStyle: { color: '#8494a8', fontSize: 10 },
       splitLine: { lineStyle: { color: '#eef2f7' } },
       axisLabel: { color: '#8494a8', fontSize: 10 },

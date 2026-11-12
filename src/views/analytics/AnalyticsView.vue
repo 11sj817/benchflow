@@ -207,7 +207,7 @@ const trendOption = computed<EChartsOption>(() => ({
   legend: { top: 0, right: 0, itemWidth: 10, itemHeight: 10, textStyle: { fontSize: 10 } },
   xAxis: { type: 'category', data: quality.value.trend.map((d) => d.day.slice(5)), ...axisStyle },
   yAxis: [
-    { type: 'value', name: '次数', minInterval: 1, ...axisStyle, ...splitStyle },
+    { type: 'value', name: '次数', minInterval: 1, interval: 1, ...axisStyle, ...splitStyle },
     { type: 'value', name: '通过率 %', max: 100, ...axisStyle, splitLine: { show: false } },
   ],
   series: [
