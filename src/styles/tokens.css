@@ -1,0 +1,58 @@
+:root {
+  --bf-sidebar-w: 236px;
+  --bf-topbar-h: 56px;
+  --bf-bg: #f3f5f8;
+  --bf-surface: #ffffff;
+  --bf-surface-2: #f8fafc;
+  --bf-surface-3: #eef2f7;
+  --bf-border: #e1e7ef;
+  --bf-border-strong: #cbd5e1;
+  --bf-ink: #16202d;
+  --bf-ink-2: #54637a;
+  --bf-ink-3: #8494a8;
+  --bf-primary: #1e3a5f;
+  --bf-primary-600: #27496f;
+  --bf-primary-soft: #eaf0f7;
+  --bf-accent: #1f6f8b;
+  --bf-teal: #157a66;
+  --bf-success: #157a5b;
+  --bf-warning: #a35a06;
+  --bf-danger: #b02a1f;
+  --bf-sidebar-bg: #14202e;
+  --bf-sidebar-bg-2: #1b2b3d;
+  --bf-sidebar-ink: #a9b8ca;
+  --bf-sidebar-ink-strong: #eaf1f8;
+  --bf-radius: 5px;
+  --bf-radius-lg: 8px;
+  --bf-shadow-sm: 0 1px 2px rgba(20, 32, 46, 0.06);
+  --bf-shadow-md: 0 8px 24px rgba(20, 32, 46, 0.1);
+  --bf-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Helvetica Neue', Arial, sans-serif;
+  --bf-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+
+  /* Element Plus theme alignment */
+  --el-color-primary: #1e3a5f;
+  --el-color-primary-light-3: #4a688c;
+  --el-color-primary-light-5: #7a90ad;
+  --el-color-primary-light-7: #aebcd0;
+  --el-color-primary-light-8: #c9d3e2;
+  --el-color-primary-light-9: #e9eff6;
+  --el-color-primary-dark-2: #152c49;
+  --el-color-success: #157a5b;
+  --el-color-warning: #a35a06;
+  --el-color-danger: #b02a1f;
+  --el-color-info: #54637a;
+  --el-font-size-base: 13px;
+  --el-font-family: var(--bf-font);
+  --el-border-radius-base: 5px;
+  --el-border-color: #e1e7ef;
+  --el-border-color-light: #e8edf4;
+  --el-text-color-primary: #16202d;
+  --el-text-color-regular: #3d4a5c;
+  --el-bg-color: #ffffff;
+  --el-fill-color-light: #f5f8fb;
+}
+
+html.compact {
+  --el-font-size-base: 12px;
+}
